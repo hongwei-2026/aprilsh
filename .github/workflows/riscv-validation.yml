@@ -29,7 +29,9 @@ jobs:
       - name: Install native build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential libncurses-dev
+          sudo apt-get install -y build-essential libncurses-dev locales
+          sudo locale-gen en_US.UTF-8
+          locale -a
 
       - name: Build native client and server
         run: |
