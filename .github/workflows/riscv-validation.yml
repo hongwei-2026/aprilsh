@@ -1,0 +1,99 @@
+name: RISC-V validation
+
+on:
+  push:
+    branches:
+      - validation/96-riscv-runner
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04-riscv
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Confirm native RISC-V environment
+        run: |
+          uname -a
+          test "$(uname -m)" = riscv64
+          go version
+
+      - name: Install native build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libncurses-dev
+
+      - name: Build native client and server
+        run: |
+          go build -tags utmp -o ./bin/apshd ./frontend/server
+          go build -o ./bin/apsh ./frontend/client
+          file ./bin/apshd ./bin/apsh
+          ./bin/apshd --version
+          ./bin/apsh --version
+
+      - name: Run worker-startup regression tests
+        env:
+          APRILSH_APSHD_PATH: ${{ github.workspace }}/bin/apshd
+          SHELL: /bin/bash
+          TERM: xterm-256color
+        run: |
+          go test -tags utmp ./frontend/server \
+            -run '^(TestRunWorkerKillSignal|TestBeginChildDelayedResponse)$' \
+            -count=10 -v -timeout=10m
+
+      - name: Verify real worker handshake and shell startup
+        shell: bash
+        env:
+          APRILSH_APSHD_PATH: ${{ github.workspace }}/bin/apshd
+          SHELL: /bin/bash
+          TERM: xterm-256color
+        run: |
+          set -euo pipefail
+          uds="/tmp/aprilsh-validation-$$.sock"
+          APRILSH_UDS="$uds" ./bin/apshd -p 18100 -auto 15 >apshd-main.log 2>&1 &
+          server_pid=$!
+          cleanup() {
+            kill "$server_pid" 2>/dev/null || true
+            wait "$server_pid" 2>/dev/null || true
+            printf '%s\n' '--- apshd-main.log ---'
+            cat apshd-main.log
+          }
+          trap cleanup EXIT
+
+          for _ in $(seq 1 50); do
+            test -S "$uds" && break
+            sleep 0.1
+          done
+          test -S "$uds"
+
+          response=$(APRILSH_UDS="$uds" ./bin/apshd \
+            -b -p 18100 -t xterm-256color \
+            -destination "$(id -un)@localhost" 2>apshd-begin.log)
+          printf '%s\n' "$response"
+          grep -Eq '^open aprilsh:[0-9]+,[A-Za-z0-9+/]+=*$' <<<"$response"
+          port=$(sed -E 's/^open aprilsh:([0-9]+),.*$/\1/' <<<"$response")
+          test "$port" -gt 18100
+
+          kill -USR1 "$server_pid"
+          wait "$server_pid"
+          trap - EXIT
+          cat apshd-main.log
+          cat apshd-begin.log
+          grep -F 'start listening on' apshd-main.log
+          grep -F 'user session begin' apshd-main.log
+          grep -F 'user session end' apshd-main.log
+
+      - name: Run scoped server tests
+        env:
+          APRILSH_APSHD_PATH: ${{ github.workspace }}/bin/apshd
+          SHELL: /bin/bash
+          TERM: xterm-256color
+        run: go test -tags utmp ./frontend/server -count=1 -timeout=20m
