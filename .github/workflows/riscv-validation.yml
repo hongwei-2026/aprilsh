@@ -46,6 +46,8 @@ jobs:
           APRILSH_APSHD_PATH: ${{ github.workspace }}/bin/apshd
           SHELL: /bin/bash
           TERM: xterm-256color
+          LANG: en_US.UTF-8
+          LC_ALL: en_US.UTF-8
         run: |
           go test -tags utmp ./frontend/server \
             -run '^(TestRunWorkerKillSignal|TestBeginChildDelayedResponse)$' \
@@ -57,6 +59,8 @@ jobs:
           APRILSH_APSHD_PATH: ${{ github.workspace }}/bin/apshd
           SHELL: /bin/bash
           TERM: xterm-256color
+          LANG: en_US.UTF-8
+          LC_ALL: en_US.UTF-8
         run: |
           set -euo pipefail
           uds="/tmp/aprilsh-validation-$$.sock"
@@ -98,4 +102,6 @@ jobs:
           APRILSH_APSHD_PATH: ${{ github.workspace }}/bin/apshd
           SHELL: /bin/bash
           TERM: xterm-256color
+          LANG: en_US.UTF-8
+          LC_ALL: en_US.UTF-8
         run: go test -tags utmp ./frontend/server -count=1 -timeout=20m
